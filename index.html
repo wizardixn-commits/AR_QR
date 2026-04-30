@@ -237,25 +237,25 @@
             // Рисуем текущий кадр на скрытый холст
             offscreenCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            // Накладываем полученную маску от MediaPipe через GPU-операции (гораздо быстрее цикла)
+            // Накладываем полученную маску от MediaPipe через GPU-операции
             maskCtx.putImageData(coloredPartImage, 0, 0);
             
             // "destination-in" оставляет пиксели видео только там, где маска непрозрачная
             offscreenCtx.globalCompositeOperation = 'destination-in';
+            offscreenCtx.filter = 'blur(3px)'; // Сглаживание краев (растушевка) для органичного вписывания
             offscreenCtx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
+            offscreenCtx.filter = 'none'; // Сбрасываем фильтр
             offscreenCtx.globalCompositeOperation = 'source-over';
 
-            // Отрисовка человека с фильтрами (только фронтальная камера = зеркалим всегда)
+            // Отрисовка человека с базовыми фильтрами (только фронтальная камера = зеркалим всегда)
             ctx.save();
             ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
-            
-            // Теплый фильтр и легкий контраст/насыщенность (тень убрана из-за сильного падения производительности на мобильных)
             ctx.filter = 'contrast(1.05) saturate(1.1)';
             ctx.drawImage(offscreenCanvas, 0, 0);
             ctx.restore();
 
-            // Накладываем виньетку (затемнение по краям) для объединения человека и фона общим светом
+            // 1. Виньетка (затемнение по краям)
             const gradient = ctx.createRadialGradient(
                 canvas.width/2, canvas.height/2, 0, 
                 canvas.width/2, canvas.height/2, Math.max(canvas.width, canvas.height) * 0.7
@@ -264,6 +264,19 @@
             gradient.addColorStop(1, 'rgba(0, 0, 0, 0.4)'); // Мягкие тени по краям кадра
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 2. Инстаграм-фильтр (Цветокоррекция поверх всего: фона и человека)
+            ctx.save();
+            // Теплый, кинематографичный оттенок (эффект Golden Hour)
+            ctx.globalCompositeOperation = 'overlay';
+            ctx.fillStyle = 'rgba(255, 140, 50, 0.15)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Легкий холодный оттенок в тенях для объема (классический Teal & Orange)
+            ctx.globalCompositeOperation = 'soft-light';
+            ctx.fillStyle = 'rgba(0, 50, 150, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.restore();
         }
 
         captureBtn.addEventListener('click', () => {
