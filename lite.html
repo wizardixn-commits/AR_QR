@@ -250,20 +250,23 @@
         }
 
         function drawPerson(maskImage) {
-            // Рисуем текущий кадр на скрытый холст
+            // Очищаем скрытый холст от предыдущего кадра (важно для прозрачных краев)
+            offscreenCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Рисуем видео и сразу применяем к нему цветокоррекцию (до прозрачности!)
+            offscreenCtx.filter = 'contrast(1.05) saturate(1.1)';
             offscreenCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            // "destination-in" оставляет пиксели видео только там, где маска непрозрачная
-            // Благодаря естественному альфа-каналу маски мы получаем идеально гладкие края
+            // 2. Вырезаем по маске (маска уже с мягкими краями)
             offscreenCtx.globalCompositeOperation = 'destination-in';
+            offscreenCtx.filter = 'none'; // Сбрасываем фильтр для маски
             offscreenCtx.drawImage(maskImage, 0, 0, canvas.width, canvas.height);
             offscreenCtx.globalCompositeOperation = 'source-over';
 
-            // Отрисовка человека с базовыми фильтрами (только фронтальная камера = зеркалим всегда)
+            // 3. Отрисовываем готового человека на основной холст (зеркально)
             ctx.save();
             ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
-            ctx.filter = 'contrast(1.05) saturate(1.1)';
             ctx.drawImage(offscreenCanvas, 0, 0);
             ctx.restore();
 

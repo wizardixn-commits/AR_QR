@@ -296,22 +296,24 @@
         }
 
         function drawPerson(maskImage) {
-            // Рисуем текущий кадр на скрытый холст
+            // Очищаем скрытый холст
+            offscreenCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 1. Применяем цветокоррекцию к непрозрачному видео
+            offscreenCtx.filter = 'contrast(1.05) saturate(1.1)';
             offscreenCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            // "destination-in" оставляет пиксели видео только там, где маска непрозрачная
+            // 2. Вырезаем силуэт ("destination-in") с растушевкой маски
             offscreenCtx.globalCompositeOperation = 'destination-in';
-            // ДОБАВЛЯЕМ РАСТУШЕВКУ (размытие маски на 4px для плавных краев)
-            offscreenCtx.filter = 'blur(4px)';
+            offscreenCtx.filter = 'blur(4px)'; // Размытие только для маски (чтобы сгладить пиксели нейросети)
             offscreenCtx.drawImage(maskImage, 0, 0, canvas.width, canvas.height);
             offscreenCtx.filter = 'none'; // Сбрасываем фильтр
             offscreenCtx.globalCompositeOperation = 'source-over';
 
-            // Отрисовка человека с базовыми фильтрами (зеркалим)
+            // 3. Отрисовываем готового человека на основной холст (зеркально)
             ctx.save();
             ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
-            ctx.filter = 'contrast(1.05) saturate(1.1)';
             ctx.drawImage(offscreenCanvas, 0, 0);
             ctx.restore();
 
