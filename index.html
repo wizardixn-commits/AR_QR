@@ -5,9 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>AR Фотозона</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-segmentation@1.0.1/dist/body-segmentation.min.js"></script>
+    <script type="module">
+        import { ImageSegmenter, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs";
+        
+        // Экспортируем в window, чтобы они были доступны внутри нашего скрипта (или можем объединить скрипты)
+        window.ImageSegmenter = ImageSegmenter;
+        window.FilesetResolver = FilesetResolver;
+    </script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         body { 
@@ -130,14 +134,23 @@
                     backgroundImage.src = 'bg.jpg';
                 });
 
-                loadingStatus.textContent = 'Загружаем новую нейросеть MediaPipe SelfieSegmentation...';
-                const model = bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation;
-                const segmenterConfig = {
-                  runtime: 'mediapipe',
-                  solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation',
-                  modelType: 'general'
-                };
-                net = await bodySegmentation.createSegmenter(model, segmenterConfig);
+                loadingStatus.textContent = 'Загружаем новую нейросеть MediaPipe Tasks Vision...';
+                
+                // 1. Инициализация WASM и модели
+                const vision = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
+                );
+                
+                // 2. Создание сегментатора с принудительным GPU Delegate
+                net = await ImageSegmenter.createFromOptions(vision, {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
+                        delegate: "GPU" // ПРИНУДИТЕЛЬНОЕ ИСПОЛЬЗОВАНИЕ ВИДЕОКАРТЫ
+                    },
+                    runningMode: "VIDEO",
+                    outputCategoryMask: false,
+                    outputConfidenceMasks: true
+                });
 
                 loadingStatus.textContent = 'Запускаем камеру...';
                 await startCamera();
@@ -194,19 +207,40 @@
                 isPredicting = true;
 
                 try {
-                    const segmentations = await net.segmentPeople(video, {
-                        flipHorizontal: false
-                    });
+                    // Асинхронное получение результата (runningMode: VIDEO)
+                    const startTimeMs = performance.now();
+                    const result = net.segmentForVideo(video, startTimeMs);
 
-                    // Clear canvas before redrawing
+                    // Очистка перед новым кадром
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     drawBackground();
 
-                    if (segmentations.length > 0) {
-                        // Получаем естественную маску с плавным альфа-каналом (Alpha Matting)
-                        // Это убирает "рваные края", так как сохраняет полупрозрачность на границах
-                        const maskImage = await segmentations[0].mask.toCanvasImageSource();
-                        drawPerson(maskImage);
+                    if (result && result.confidenceMasks && result.confidenceMasks.length > 0) {
+                        const mask = result.confidenceMasks[0];
+                        
+                        // Получаем вероятности (Float32Array, значения от 0.0 до 1.0)
+                        const maskArray = mask.getAsFloat32Array();
+                        const mWidth = mask.width;
+                        const mHeight = mask.height;
+
+                        // Создаем ImageData для альфа-маски (чтобы сохранить плавные края)
+                        const imageData = maskCtx.createImageData(mWidth, mHeight);
+                        const data = imageData.data;
+                        
+                        // Быстрый цикл: заливаем только Alpha-канал (прозрачность)
+                        for (let i = 0; i < maskArray.length; i++) {
+                            data[i * 4 + 3] = maskArray[i] * 255; 
+                        }
+                        
+                        maskCanvas.width = mWidth;
+                        maskCanvas.height = mHeight;
+                        maskCtx.putImageData(imageData, 0, 0);
+
+                        // Отрисовываем
+                        drawPerson(maskCanvas);
+
+                        // КРИТИЧЕСКИ ВАЖНО: Освобождение памяти (предотвращение Memory Leaks)
+                        mask.close();
                     }
 
                 } catch (e) {
