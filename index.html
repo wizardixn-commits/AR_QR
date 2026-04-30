@@ -9,7 +9,13 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.2.0/dist/body-pix.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { background-color: #111; color: white; overflow: hidden; }
+        body { 
+            background-color: #111; 
+            color: white; 
+            overflow: hidden; 
+            height: 100vh; /* fallback */
+            height: 100dvh; /* dynamic viewport height for mobile browsers */
+        }
         #flash {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: white; z-index: 50; opacity: 0; pointer-events: none;
@@ -20,7 +26,6 @@
         .canvas-container {
             position: relative;
             width: 100%;
-            height: calc(100vh - 120px);
             display: flex;
             justify-content: center;
             align-items: center;
@@ -35,7 +40,7 @@
         }
     </style>
 </head>
-<body class="flex flex-col h-screen">
+<body class="flex flex-col">
 
     <div id="flash"></div>
 
