@@ -168,8 +168,8 @@
                     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
                 );
 
-                // 2. Создание сегментатора с принудительным GPU Delegate
-                net = await ImageSegmenter.createFromOptions(vision, {
+                // 2. Создание сегментатора с автоматическим переключением GPU/CPU
+                const segmenterOptions = {
                     baseOptions: {
                         modelAssetPath: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
                         delegate: "GPU"
@@ -177,7 +177,17 @@
                     runningMode: "VIDEO",
                     outputCategoryMask: true,
                     outputConfidenceMasks: false
-                });
+                };
+
+                try {
+                    net = await ImageSegmenter.createFromOptions(vision, segmenterOptions);
+                    console.log("Запущено с GPU Delegate");
+                } catch (gpuError) {
+                    console.warn("GPU не поддерживается, переключаемся на CPU...", gpuError);
+                    segmenterOptions.baseOptions.delegate = "CPU";
+                    net = await ImageSegmenter.createFromOptions(vision, segmenterOptions);
+                    console.log("Запущено с CPU Delegate");
+                }
 
                 loadingStatus.textContent = 'Запускаем камеру...';
                 await startCamera();
@@ -346,6 +356,7 @@
 
         retakeBtn.addEventListener('click', () => {
             isFrozen = false;
+            isPredicting = false; // <-- СБРОС ФЛАГА ОБЯЗАТЕЛЕН
             captureGroup.classList.remove('hidden');
             actionGroup.classList.add('hidden');
             instructionText.textContent = 'Нажмите «СДЕЛАТЬ СЕЛФИ», чтобы сделать снимок.';
