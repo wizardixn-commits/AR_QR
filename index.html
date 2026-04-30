@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>AR Фотозона</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.2.0/dist/body-pix.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-segmentation@1.0.1/dist/body-segmentation.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         body { 
@@ -115,6 +116,10 @@
 
         const offscreenCanvas = document.createElement('canvas');
         const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+        
+        // Вспомогательный холст для новой маски MediaPipe
+        const maskCanvas = document.createElement('canvas');
+        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
 
         async function init() {
             try {
@@ -129,13 +134,14 @@
                     backgroundImage.src = 'bg.jpg';
                 });
 
-                loadingStatus.textContent = 'Загружаем нейросеть (это может занять 10-20 сек)...';
-                net = await bodyPix.load({
-                    architecture: 'MobileNetV1',
-                    outputStride: 16,
-                    multiplier: 0.75, // Увеличено для лучшего качества контура
-                    quantBytes: 2
-                });
+                loadingStatus.textContent = 'Загружаем новую нейросеть MediaPipe SelfieSegmentation...';
+                const model = bodySegmentation.SupportedModels.MediaPipeSelfieSegmentation;
+                const segmenterConfig = {
+                  runtime: 'mediapipe',
+                  solutionPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation',
+                  modelType: 'general'
+                };
+                net = await bodySegmentation.createSegmenter(model, segmenterConfig);
 
                 loadingStatus.textContent = 'Запускаем камеру...';
                 await startCamera();
@@ -181,6 +187,8 @@
             canvas.height = video.videoHeight;
             offscreenCanvas.width = video.videoWidth;
             offscreenCanvas.height = video.videoHeight;
+            maskCanvas.width = video.videoWidth;
+            maskCanvas.height = video.videoHeight;
         }
         window.addEventListener('resize', resizeCanvas);
         video.addEventListener('loadedmetadata', resizeCanvas);
@@ -192,17 +200,22 @@
                 isPredicting = true;
 
                 try {
-                    const segmentation = await net.segmentPerson(video, {
-                        flipHorizontal: false, // Don't flip segmentation, keep it aligned with video frame
-                        internalResolution: 'high', // Увеличено для более идеального вырезания
-                        segmentationThreshold: 0.7
+                    const segmentations = await net.segmentPeople(video, {
+                        flipHorizontal: false
                     });
 
                     // Clear canvas before redrawing
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    
                     drawBackground();
-                    drawPerson(segmentation);
+
+                    if (segmentations.length > 0) {
+                        // Создаем бинарную маску (человек = белый, фон = прозрачный)
+                        const foregroundColor = {r: 255, g: 255, b: 255, a: 255};
+                        const backgroundColor = {r: 0, g: 0, b: 0, a: 0};
+                        const coloredPartImage = await bodySegmentation.toBinaryMask(segmentations, foregroundColor, backgroundColor);
+                        
+                        drawPerson(coloredPartImage);
+                    }
 
                 } catch (e) {
                     console.error(e);
@@ -220,19 +233,17 @@
             ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
         }
 
-        function drawPerson(segmentation) {
+        function drawPerson(coloredPartImage) {
             // Рисуем текущий кадр на скрытый холст
             offscreenCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            // Применяем маску: делаем фон прозрачным
-            const imageData = offscreenCtx.getImageData(0, 0, canvas.width, canvas.height);
-            const pixels = imageData.data;
-            for (let i = 0; i < segmentation.data.length; i++) {
-                if (segmentation.data[i] === 0) {
-                    pixels[i * 4 + 3] = 0; // прозрачный пиксель фона
-                }
-            }
-            offscreenCtx.putImageData(imageData, 0, 0);
+            // Накладываем полученную маску от MediaPipe через GPU-операции (гораздо быстрее цикла)
+            maskCtx.putImageData(coloredPartImage, 0, 0);
+            
+            // "destination-in" оставляет пиксели видео только там, где маска непрозрачная
+            offscreenCtx.globalCompositeOperation = 'destination-in';
+            offscreenCtx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
+            offscreenCtx.globalCompositeOperation = 'source-over';
 
             // Отрисовка человека с фильтрами (только фронтальная камера = зеркалим всегда)
             ctx.save();
