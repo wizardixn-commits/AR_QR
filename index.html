@@ -116,10 +116,6 @@
 
         const offscreenCanvas = document.createElement('canvas');
         const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
-        
-        // Вспомогательный холст для новой маски MediaPipe
-        const maskCanvas = document.createElement('canvas');
-        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
 
         async function init() {
             try {
@@ -187,8 +183,6 @@
             canvas.height = video.videoHeight;
             offscreenCanvas.width = video.videoWidth;
             offscreenCanvas.height = video.videoHeight;
-            maskCanvas.width = video.videoWidth;
-            maskCanvas.height = video.videoHeight;
         }
         window.addEventListener('resize', resizeCanvas);
         video.addEventListener('loadedmetadata', resizeCanvas);
@@ -209,12 +203,10 @@
                     drawBackground();
 
                     if (segmentations.length > 0) {
-                        // Создаем бинарную маску (человек = белый, фон = прозрачный)
-                        const foregroundColor = {r: 255, g: 255, b: 255, a: 255};
-                        const backgroundColor = {r: 0, g: 0, b: 0, a: 0};
-                        const coloredPartImage = await bodySegmentation.toBinaryMask(segmentations, foregroundColor, backgroundColor);
-                        
-                        drawPerson(coloredPartImage);
+                        // Получаем естественную маску с плавным альфа-каналом (Alpha Matting)
+                        // Это убирает "рваные края", так как сохраняет полупрозрачность на границах
+                        const maskImage = await segmentations[0].mask.toCanvasImageSource();
+                        drawPerson(maskImage);
                     }
 
                 } catch (e) {
@@ -233,18 +225,14 @@
             ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
         }
 
-        function drawPerson(coloredPartImage) {
+        function drawPerson(maskImage) {
             // Рисуем текущий кадр на скрытый холст
             offscreenCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-            // Накладываем полученную маску от MediaPipe через GPU-операции
-            maskCtx.putImageData(coloredPartImage, 0, 0);
             
             // "destination-in" оставляет пиксели видео только там, где маска непрозрачная
+            // Благодаря естественному альфа-каналу маски мы получаем идеально гладкие края
             offscreenCtx.globalCompositeOperation = 'destination-in';
-            offscreenCtx.filter = 'blur(3px)'; // Сглаживание краев (растушевка) для органичного вписывания
-            offscreenCtx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
-            offscreenCtx.filter = 'none'; // Сбрасываем фильтр
+            offscreenCtx.drawImage(maskImage, 0, 0, canvas.width, canvas.height);
             offscreenCtx.globalCompositeOperation = 'source-over';
 
             // Отрисовка человека с базовыми фильтрами (только фронтальная камера = зеркалим всегда)
