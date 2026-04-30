@@ -46,12 +46,19 @@
     <script>
         // Функция проверки железа
         function detectDeviceTier() {
-            // 1. Проверка на устройства Huawei/Honor
-            // У встроенных браузеров Huawei (EMUI) часто бывают конфликты с MediaPipe Tasks Vision (GPU/WASM),
-            // поэтому надежнее сразу отправлять их на проверенную Lite-версию.
+            // 1. Усиленная проверка на устройства Huawei/Honor (HarmonyOS / EMUI)
+            // Встроенные браузеры могут прятать 'huawei' в User-Agent, поэтому ищем дополнительные маркеры
             const ua = navigator.userAgent.toLowerCase();
-            const isHuawei = ua.includes('huawei') || ua.includes('honor') || ua.includes('hmscore');
-            if (isHuawei) {
+            const isHuawei = ua.includes('huawei') || 
+                             ua.includes('honor') || 
+                             ua.includes('hmscore') || 
+                             ua.includes('harmony') || 
+                             ua.includes('emui') ||
+                             ua.includes('browser/hw'); // Huawei Browser
+            
+            const isHuaweiVendor = navigator.vendor && navigator.vendor.toLowerCase().includes('huawei');
+
+            if (isHuawei || isHuaweiVendor) {
                 return 'lite';
             }
 
@@ -59,9 +66,10 @@
             const hasWasm = typeof WebAssembly === "object" && typeof WebAssembly.instantiate === "function";
             if (!hasWasm) return 'lite';
 
-            // 3. Проверка оперативной памяти (если браузер отдает эти данные)
-            // Важно: если navigator.deviceMemory не поддерживается (например, iOS), он undefined.
-            if (navigator.deviceMemory && navigator.deviceMemory < 4) {
+            // 3. Проверка оперативной памяти
+            // Повышаем планку для Pro-версии: отправляем на Lite всех, у кого меньше 6 ГБ ОЗУ.
+            // (iOS и некоторые другие браузеры не отдают deviceMemory, они пропустят эту проверку)
+            if (navigator.deviceMemory && navigator.deviceMemory < 6) {
                 return 'lite';
             }
 
@@ -75,6 +83,15 @@
                 const canvas = document.createElement('canvas');
                 const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
                 if (!gl) return 'lite';
+                
+                // Проверка на проблемные видеоускорители (Mali GPU, которые часто стоят в Huawei/Honor/MediaTek)
+                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                if (debugInfo) {
+                    const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL).toLowerCase();
+                    if (renderer.includes('mali')) {
+                        return 'lite';
+                    }
+                }
             } catch (e) {
                 return 'lite';
             }
