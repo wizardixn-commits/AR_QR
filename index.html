@@ -52,7 +52,7 @@
     </div>
 
     <!-- Инструкция для мобильных пользователей -->
-    <div class="text-center text-sm text-gray-400 pt-4 mb-2">Нажмите «СДЕЛАТЬ СЕЛФИ» — фото будет сохранено в галерее вашего телефона.</div>
+    <div id="instructionText" class="text-center text-sm text-gray-400 pt-4 mb-2">Нажмите «СДЕЛАТЬ СЕЛФИ», чтобы сделать снимок.</div>
 
     <!-- Главная область с камерой -->
     <main class="flex-1 min-h-0 canvas-container bg-gray-950">
@@ -62,10 +62,27 @@
 
     <!-- Кнопка фото -->
     <footer class="p-3 bg-gray-900 z-10 pb-6">
-        <div class="max-w-md mx-auto">
-            <button id="photoBtn" class="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-4 rounded-xl shadow-lg transform transition active:scale-95 flex items-center justify-center gap-2">
+        <!-- Initial Action: Take Selfie -->
+        <div id="captureGroup" class="max-w-md mx-auto">
+            <button id="captureBtn" class="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-4 rounded-xl shadow-lg transform transition active:scale-95 flex items-center justify-center gap-2">
                 <i class="fas fa-camera text-xl"></i>
                 СДЕЛАТЬ СЕЛФИ
+            </button>
+        </div>
+
+        <!-- Secondary Actions: Save / Share / Retake -->
+        <div id="actionGroup" class="max-w-md mx-auto flex gap-2 hidden">
+            <button id="retakeBtn" class="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl shadow-lg transform transition active:scale-95 flex flex-col items-center justify-center gap-1 text-xs sm:text-sm">
+                <i class="fas fa-redo text-lg"></i>
+                ПЕРЕСНЯТЬ
+            </button>
+            <button id="photoBtn" class="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-3 rounded-xl shadow-lg transform transition active:scale-95 flex flex-col items-center justify-center gap-1 text-xs sm:text-sm">
+                <i class="fas fa-download text-lg"></i>
+                СКАЧАТЬ
+            </button>
+            <button id="shareBtn" class="flex-1 bg-gradient-to-r from-blue-500 to-teal-500 hover:from-blue-600 hover:to-teal-600 text-white font-bold py-3 rounded-xl shadow-lg transform transition active:scale-95 flex flex-col items-center justify-center gap-1 text-xs sm:text-sm">
+                <i class="fas fa-share-nodes text-lg"></i>
+                ПОДЕЛИТЬСЯ
             </button>
         </div>
     </footer>
@@ -77,7 +94,15 @@
         const loading = document.getElementById('loading');
         const loadingStatus = document.getElementById('loadingStatus');
         const photoBtn = document.getElementById('photoBtn');
+        const shareBtn = document.getElementById('shareBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        const retakeBtn = document.getElementById('retakeBtn');
+        const captureGroup = document.getElementById('captureGroup');
+        const actionGroup = document.getElementById('actionGroup');
+        const instructionText = document.getElementById('instructionText');
         const flash = document.getElementById('flash');
+
+        let isFrozen = false;
 
         let currentFacingMode = 'user';
         let net = null;
@@ -108,7 +133,7 @@
                 net = await bodyPix.load({
                     architecture: 'MobileNetV1',
                     outputStride: 16,
-                    multiplier: 0.50,
+                    multiplier: 0.75, // Увеличено для лучшего качества контура
                     quantBytes: 2
                 });
 
@@ -161,13 +186,15 @@
         video.addEventListener('loadedmetadata', resizeCanvas);
 
         async function processVideo() {
+            if (isFrozen) return;
+
             if (video.readyState === video.HAVE_ENOUGH_DATA && !isPredicting) {
                 isPredicting = true;
 
                 try {
                     const segmentation = await net.segmentPerson(video, {
                         flipHorizontal: false, // Don't flip segmentation, keep it aligned with video frame
-                        internalResolution: 'medium',
+                        internalResolution: 'high', // Увеличено для более идеального вырезания
                         segmentationThreshold: 0.7
                     });
 
@@ -228,14 +255,34 @@
             ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
 
+        captureBtn.addEventListener('click', () => {
+            flash.classList.add('active');
+            setTimeout(() => flash.classList.remove('active'), 50);
+            
+            isFrozen = true;
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+            
+            captureGroup.classList.add('hidden');
+            actionGroup.classList.remove('hidden');
+            instructionText.textContent = 'Отличное фото! Сохраните его или поделитесь с друзьями.';
+        });
+
+        retakeBtn.addEventListener('click', () => {
+            isFrozen = false;
+            captureGroup.classList.remove('hidden');
+            actionGroup.classList.add('hidden');
+            instructionText.textContent = 'Нажмите «СДЕЛАТЬ СЕЛФИ», чтобы сделать снимок.';
+            processVideo(); // Возобновляем видео поток
+        });
+
         photoBtn.addEventListener('click', () => {
             try {
-                flash.classList.add('active');
-                setTimeout(() => flash.classList.remove('active'), 50);
-
                 canvas.toBlob((blob) => {
                     if (!blob) {
-                        alert('Не удалось создать фото. Попробуйте ещё раз.');
+                        alert('Не удалось сохранить фото. Попробуйте ещё раз.');
                         return;
                     }
                     const url = URL.createObjectURL(blob);
@@ -251,6 +298,30 @@
             } catch (err) {
                 console.error('Photo error:', err);
                 alert('Ошибка при сохранении фото: ' + err.message);
+            }
+        });
+
+        shareBtn.addEventListener('click', async () => {
+            try {
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                if (!blob) return alert('Не удалось создать фото.');
+
+                const file = new File([blob], `selfie_${Date.now()}.png`, { type: 'image/png' });
+
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    await navigator.share({
+                        files: [file],
+                        title: 'AR Селфи',
+                        text: 'Смотри, какое крутое селфи из AR Фотозоны!'
+                    });
+                } else {
+                    alert('Ваш браузер не поддерживает прямую отправку файлов. Воспользуйтесь кнопкой "СКАЧАТЬ".');
+                }
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.error('Share error:', err);
+                    alert('Ошибка при отправке: ' + err.message);
+                }
             }
         });
 
