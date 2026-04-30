@@ -46,27 +46,34 @@
     <script>
         // Функция проверки железа
         function detectDeviceTier() {
-            let score = 0;
+            // 1. Проверка на устройства Huawei/Honor
+            // У встроенных браузеров Huawei (EMUI) часто бывают конфликты с MediaPipe Tasks Vision (GPU/WASM),
+            // поэтому надежнее сразу отправлять их на проверенную Lite-версию.
+            const ua = navigator.userAgent.toLowerCase();
+            const isHuawei = ua.includes('huawei') || ua.includes('honor') || ua.includes('hmscore');
+            if (isHuawei) {
+                return 'lite';
+            }
 
-            // 1. Поддерживает ли браузер WebAssembly (критично для Pro-версии)
+            // 2. Поддерживает ли браузер WebAssembly (критично для Pro-версии)
             const hasWasm = typeof WebAssembly === "object" && typeof WebAssembly.instantiate === "function";
             if (!hasWasm) return 'lite';
 
-            // 2. Проверка оперативной памяти (если браузер отдает эти данные)
-            // Устройства с менее чем 4ГБ ОЗУ точно отправляем на Lite версию
+            // 3. Проверка оперативной памяти (если браузер отдает эти данные)
+            // Важно: если navigator.deviceMemory не поддерживается (например, iOS), он undefined.
             if (navigator.deviceMemory && navigator.deviceMemory < 4) {
                 return 'lite';
             }
 
-            // 3. Проверка количества ядер процессора
+            // 4. Проверка количества ядер процессора
             if (navigator.hardwareConcurrency && navigator.hardwareConcurrency < 4) {
                 return 'lite';
             }
 
-            // 4. Проверка видеокарты (WebGL)
+            // 5. Проверка видеокарты (WebGL)
             try {
                 const canvas = document.createElement('canvas');
-                const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+                const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
                 if (!gl) return 'lite';
             } catch (e) {
                 return 'lite';
