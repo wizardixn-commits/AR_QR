@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>AR Фотозона</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { ImageSegmenter, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs";
+
+        // Экспортируем в window, чтобы они были доступны внутри нашего скрипта (или можем объединить скрипты)
+        window.ImageSegmenter = ImageSegmenter;
+        window.FilesetResolver = FilesetResolver;
+    </script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #111;
+            color: white;
+            overflow: hidden;
+            height: 100vh;
+            /* fallback */
+            height: 100dvh;
+            /* dynamic viewport height for mobile browsers */
+        }
+
+        #flash {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            z-index: 50;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease-out;
+        }
+
+        #flash.active {
+            opacity: 1;
+            transition: none;
+        }
+
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        #outputCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 1rem;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+        }
+    </style>
+</head>
+
+<body class="flex flex-col">
+
+    <div id="flash"></div>
+
+    <!-- Экран загрузки -->
+    <div id="loading"
+        class="fixed inset-0 z-40 flex flex-col items-center justify-center bg-gray-900 bg-opacity-95 backdrop-blur-sm transition-opacity duration-500">
+        <i class="fas fa-spinner fa-spin text-5xl text-purple-500 mb-4"></i>
+        <h2 class="text-xl font-bold text-white mb-2">Загрузка магии AR...</h2>
+        <p id="loadingStatus" class="text-gray-400 text-sm text-center px-6">Почти готово...<br>Пожалуйста, разрешите
+            доступ к камере.</p>
+    </div>
+
+    <!-- Инструкция для мобильных пользователей -->
+    <div id="instructionText" class="text-center text-sm text-gray-400 pt-4 mb-2">Нажмите «СДЕЛАТЬ СЕЛФИ», чтобы сделать
+        снимок.</div>
+
+    <!-- Главная область с камерой -->
+    <main class="flex-1 min-h-0 canvas-container bg-gray-950">
+        <video id="video" playsinline autoplay muted class="hidden"></video>
+        <canvas id="outputCanvas"></canvas>
+    </main>
+
+    <!-- Кнопка фото -->
+    <footer class="p-3 bg-gray-900 z-10 pb-6">
+        <!-- Initial Action: Take Selfie -->
+        <div id="captureGroup" class="max-w-md mx-auto">
+            <button id="captureBtn"
+                class="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-4 rounded-xl shadow-lg transform transition active:scale-95 flex items-center justify-center gap-2">
+                <i class="fas fa-camera text-xl"></i>
+                СДЕЛАТЬ СЕЛФИ
+            </button>
+        </div>
+
+        <!-- Secondary Actions: Save / Share / Retake -->
+        <div id="actionGroup" class="max-w-md mx-auto flex gap-2 hidden">
+            <button id="retakeBtn"
+                class="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl shadow-lg transform transition active:scale-95 flex flex-col items-center justify-center gap-1 text-xs sm:text-sm">
+                <i class="fas fa-redo text-lg"></i>
+                ПЕРЕСНЯТЬ
+            </button>
+            <button id="photoBtn"
+                class="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-3 rounded-xl shadow-lg transform transition active:scale-95 flex flex-col items-center justify-center gap-1 text-xs sm:text-sm">
+                <i class="fas fa-download text-lg"></i>
+                СКАЧАТЬ
+            </button>
+            <button id="shareBtn"
+                class="flex-1 bg-gradient-to-r from-blue-500 to-teal-500 hover:from-blue-600 hover:to-teal-600 text-white font-bold py-3 rounded-xl shadow-lg transform transition active:scale-95 flex flex-col items-center justify-center gap-1 text-xs sm:text-sm">
+                <i class="fas fa-share-nodes text-lg"></i>
+                ПОДЕЛИТЬСЯ
+            </button>
+        </div>
+    </footer>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('outputCanvas');
+        const ctx = canvas.getContext('2d');
+        const loading = document.getElementById('loading');
+        const loadingStatus = document.getElementById('loadingStatus');
+        const photoBtn = document.getElementById('photoBtn');
+        const shareBtn = document.getElementById('shareBtn');
+        const captureBtn = document.getElementById('captureBtn');
+        const retakeBtn = document.getElementById('retakeBtn');
+        const captureGroup = document.getElementById('captureGroup');
+        const actionGroup = document.getElementById('actionGroup');
+        const instructionText = document.getElementById('instructionText');
+        const flash = document.getElementById('flash');
+
+        let isFrozen = false;
+
+        let currentFacingMode = 'user';
+        let net = null;
+        let isPredicting = false;
+        let animationId = null;
+        let bgLoaded = false;
+
+        const backgroundImage = new Image();
+        backgroundImage.crossOrigin = 'anonymous';
+
+        const offscreenCanvas = document.createElement('canvas');
+        const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+
+        // Вспомогательный холст для создания маски из массива вероятностей
+        const maskCanvas = document.createElement('canvas');
+        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+
+        async function init() {
+            try {
+                if (window.location.protocol === 'file:') {
+                    throw new Error('Откройте через локальный сервер: python3 -m http.server 8000, затем http://localhost:8000');
+                }
+
+                loadingStatus.textContent = 'Загружаем фоновое изображение...';
+                await new Promise((resolve, reject) => {
+                    backgroundImage.onload = () => { bgLoaded = true; resolve(); };
+                    backgroundImage.onerror = () => reject(new Error('Не удалось загрузить bg.jpg'));
+                    backgroundImage.src = 'bg.jpg';
+                });
+
+                loadingStatus.textContent = 'Загружаем новую нейросеть MediaPipe Tasks Vision...';
+
+                // 1. Инициализация WASM и модели
+                const vision = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
+                );
+
+                // 2. Создание сегментатора с автоматическим переключением GPU/CPU
+                const segmenterOptions = {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
+                        delegate: "GPU"
+                    },
+                    runningMode: "VIDEO",
+                    outputCategoryMask: true,
+                    outputConfidenceMasks: false
+                };
+
+                try {
+                    net = await ImageSegmenter.createFromOptions(vision, segmenterOptions);
+                    console.log("Запущено с GPU Delegate");
+                } catch (gpuError) {
+                    console.warn("GPU не поддерживается, переключаемся на CPU...", gpuError);
+                    segmenterOptions.baseOptions.delegate = "CPU";
+                    net = await ImageSegmenter.createFromOptions(vision, segmenterOptions);
+                    console.log("Запущено с CPU Delegate");
+                }
+
+                loadingStatus.textContent = 'Запускаем камеру...';
+                await startCamera();
+
+            } catch (error) {
+                console.error('Ошибка инициализации:', error);
+                loading.innerHTML = `
+                    <div class="text-red-500 text-center px-6">
+                        <i class="fas fa-exclamation-triangle text-5xl mb-4"></i>
+                        <p class="text-lg font-bold mb-2">Ошибка</p>
+                        <p class="text-sm text-gray-300">${error.message}</p>
+                        <button onclick="location.reload()" class="mt-4 px-6 py-2 bg-purple-600 rounded-lg text-white">Попробовать снова</button>
+                    </div>`;
+            }
+        }
+
+        async function startCamera() {
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: currentFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false
+            });
+            video.srcObject = stream;
+            video.play().catch(e => console.error('Ошибка воспроизведения видео:', e));
+            video.onloadeddata = () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                offscreenCanvas.width = video.videoWidth;
+                offscreenCanvas.height = video.videoHeight;
+                loading.classList.add('opacity-0');
+                setTimeout(() => loading.style.display = 'none', 500);
+                if (!animationId) {
+                    processVideo();
+                }
+            };
+        }
+
+        function resizeCanvas() {
+            if (!video.videoWidth) return;
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            offscreenCanvas.width = video.videoWidth;
+            offscreenCanvas.height = video.videoHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        video.addEventListener('loadedmetadata', resizeCanvas);
+
+        async function processVideo() {
+            if (isFrozen) return;
+
+            if (video.readyState === video.HAVE_ENOUGH_DATA && !isPredicting) {
+                isPredicting = true;
+
+                try {
+                    // Асинхронное получение результата (runningMode: VIDEO)
+                    const startTimeMs = performance.now();
+                    const result = net.segmentForVideo(video, startTimeMs);
+
+                    // Очистка перед новым кадром
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    drawBackground();
+
+                    if (result && result.categoryMask) {
+                        const mask = result.categoryMask;
+                        const maskArray = mask.getAsUint8Array();
+                        const mWidth = mask.width;
+                        const mHeight = mask.height;
+
+                        const imageData = maskCtx.createImageData(mWidth, mHeight);
+                        const data = imageData.data;
+
+                        // В categoryMask для этой модели: 0 = человек, >0 = фон.
+                        for (let i = 0; i < maskArray.length; i++) {
+                            // Если значение равно 0, это человек. Задаем непрозрачность 255 (оставляем видео).
+                            // Если больше 0 - это фон, делаем его прозрачным (0), чтобы было видно bg.jpg
+                            data[i * 4 + 3] = maskArray[i] === 0 ? 255 : 0;
+                        }
+
+                        maskCanvas.width = mWidth;
+                        maskCanvas.height = mHeight;
+                        maskCtx.putImageData(imageData, 0, 0);
+
+                        drawPerson(maskCanvas);
+                        mask.close();
+                    }
+
+                    isPredicting = false;
+
+                } catch (e) {
+                    console.error(e);
+                    // ОТОБРАЖАЕМ ОШИБКУ НА ЭКРАНЕ
+                    document.getElementById('instructionText').textContent = "ОШИБКА: " + e.message;
+                    isPredicting = false;
+                }
+            }
+
+            animationId = requestAnimationFrame(processVideo);
+        }
+
+        function drawBackground() {
+            if (!bgLoaded) return;
+            // Растягиваем фон на весь холст, чтобы он не обрезался
+            ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+        }
+
+        function drawPerson(maskImage) {
+            // Рисуем текущий кадр на скрытый холст
+            offscreenCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // "destination-in" оставляет пиксели видео только там, где маска непрозрачная
+            offscreenCtx.globalCompositeOperation = 'destination-in';
+            // ДОБАВЛЯЕМ РАСТУШЕВКУ (размытие маски на 4px для плавных краев)
+            offscreenCtx.filter = 'blur(4px)';
+            offscreenCtx.drawImage(maskImage, 0, 0, canvas.width, canvas.height);
+            offscreenCtx.filter = 'none'; // Сбрасываем фильтр
+            offscreenCtx.globalCompositeOperation = 'source-over';
+
+            // Отрисовка человека с базовыми фильтрами (зеркалим)
+            ctx.save();
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+            ctx.filter = 'contrast(1.05) saturate(1.1)';
+            ctx.drawImage(offscreenCanvas, 0, 0);
+            ctx.restore();
+
+            // 1. Виньетка (затемнение по краям)
+            const gradient = ctx.createRadialGradient(
+                canvas.width / 2, canvas.height / 2, 0,
+                canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) * 0.7
+            );
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.4)'); // Мягкие тени по краям кадра
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 2. Инстаграм-фильтр (Цветокоррекция поверх всего: фона и человека)
+            ctx.save();
+            // Теплый, кинематографичный оттенок (эффект Golden Hour)
+            ctx.globalCompositeOperation = 'overlay';
+            ctx.fillStyle = 'rgba(255, 140, 50, 0.15)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Легкий холодный оттенок в тенях для объема (классический Teal & Orange)
+            ctx.globalCompositeOperation = 'soft-light';
+            ctx.fillStyle = 'rgba(0, 50, 150, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.restore();
+        }
+
+        captureBtn.addEventListener('click', () => {
+            flash.classList.add('active');
+            setTimeout(() => flash.classList.remove('active'), 50);
+
+            isFrozen = true;
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+                animationId = null;
+            }
+
+            captureGroup.classList.add('hidden');
+            actionGroup.classList.remove('hidden');
+            instructionText.textContent = 'Отличное фото! Сохраните его или поделитесь с друзьями.';
+        });
+
+        retakeBtn.addEventListener('click', () => {
+            isFrozen = false;
+            isPredicting = false; // <-- СБРОС ФЛАГА ОБЯЗАТЕЛЕН
+            captureGroup.classList.remove('hidden');
+            actionGroup.classList.add('hidden');
+            instructionText.textContent = 'Нажмите «СДЕЛАТЬ СЕЛФИ», чтобы сделать снимок.';
+            processVideo(); // Возобновляем видео поток
+        });
+
+        photoBtn.addEventListener('click', () => {
+            try {
+                canvas.toBlob((blob) => {
+                    if (!blob) {
+                        alert('Не удалось сохранить фото. Попробуйте ещё раз.');
+                        return;
+                    }
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.download = `selfie_${Date.now()}.png`;
+                    link.href = url;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                }, 'image/png');
+
+            } catch (err) {
+                console.error('Photo error:', err);
+                alert('Ошибка при сохранении фото: ' + err.message);
+            }
+        });
+
+        shareBtn.addEventListener('click', async () => {
+            try {
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                if (!blob) return alert('Не удалось создать фото.');
+
+                const file = new File([blob], `selfie_${Date.now()}.png`, { type: 'image/png' });
+
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    await navigator.share({
+                        files: [file],
+                        title: 'AR Селфи',
+                        text: 'Смотри, какое крутое селфи из AR Фотозоны!'
+                    });
+                } else {
+                    alert('Ваш браузер не поддерживает прямую отправку файлов. Воспользуйтесь кнопкой "СКАЧАТЬ".');
+                }
+            } catch (err) {
+                if (err.name !== 'AbortError') {
+                    console.error('Share error:', err);
+                    alert('Ошибка при отправке: ' + err.message);
+                }
+            }
+        });
+
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+
+</html>
