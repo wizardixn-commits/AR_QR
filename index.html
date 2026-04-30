@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -7,26 +8,40 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="module">
         import { ImageSegmenter, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs";
-        
+
         // Экспортируем в window, чтобы они были доступны внутри нашего скрипта (или можем объединить скрипты)
         window.ImageSegmenter = ImageSegmenter;
         window.FilesetResolver = FilesetResolver;
     </script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { 
-            background-color: #111; 
-            color: white; 
-            overflow: hidden; 
-            height: 100vh; /* fallback */
-            height: 100dvh; /* dynamic viewport height for mobile browsers */
+        body {
+            background-color: #111;
+            color: white;
+            overflow: hidden;
+            height: 100vh;
+            /* fallback */
+            height: 100dvh;
+            /* dynamic viewport height for mobile browsers */
         }
+
         #flash {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: white; z-index: 50; opacity: 0; pointer-events: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: white;
+            z-index: 50;
+            opacity: 0;
+            pointer-events: none;
             transition: opacity 0.3s ease-out;
         }
-        #flash.active { opacity: 1; transition: none; }
+
+        #flash.active {
+            opacity: 1;
+            transition: none;
+        }
 
         .canvas-container {
             position: relative;
@@ -41,23 +56,27 @@
             max-width: 100%;
             max-height: 100%;
             border-radius: 1rem;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
         }
     </style>
 </head>
+
 <body class="flex flex-col">
 
     <div id="flash"></div>
 
     <!-- Экран загрузки -->
-    <div id="loading" class="fixed inset-0 z-40 flex flex-col items-center justify-center bg-gray-900 bg-opacity-95 backdrop-blur-sm transition-opacity duration-500">
+    <div id="loading"
+        class="fixed inset-0 z-40 flex flex-col items-center justify-center bg-gray-900 bg-opacity-95 backdrop-blur-sm transition-opacity duration-500">
         <i class="fas fa-spinner fa-spin text-5xl text-purple-500 mb-4"></i>
         <h2 class="text-xl font-bold text-white mb-2">Загрузка магии AR...</h2>
-        <p id="loadingStatus" class="text-gray-400 text-sm text-center px-6">Скачиваем нейросеть для удаления фона.<br>Пожалуйста, разрешите доступ к камере.</p>
+        <p id="loadingStatus" class="text-gray-400 text-sm text-center px-6">Почти готово...<br>Пожалуйста, разрешите
+            доступ к камере.</p>
     </div>
 
     <!-- Инструкция для мобильных пользователей -->
-    <div id="instructionText" class="text-center text-sm text-gray-400 pt-4 mb-2">Нажмите «СДЕЛАТЬ СЕЛФИ», чтобы сделать снимок.</div>
+    <div id="instructionText" class="text-center text-sm text-gray-400 pt-4 mb-2">Нажмите «СДЕЛАТЬ СЕЛФИ», чтобы сделать
+        снимок.</div>
 
     <!-- Главная область с камерой -->
     <main class="flex-1 min-h-0 canvas-container bg-gray-950">
@@ -69,7 +88,8 @@
     <footer class="p-3 bg-gray-900 z-10 pb-6">
         <!-- Initial Action: Take Selfie -->
         <div id="captureGroup" class="max-w-md mx-auto">
-            <button id="captureBtn" class="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-4 rounded-xl shadow-lg transform transition active:scale-95 flex items-center justify-center gap-2">
+            <button id="captureBtn"
+                class="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-4 rounded-xl shadow-lg transform transition active:scale-95 flex items-center justify-center gap-2">
                 <i class="fas fa-camera text-xl"></i>
                 СДЕЛАТЬ СЕЛФИ
             </button>
@@ -77,15 +97,18 @@
 
         <!-- Secondary Actions: Save / Share / Retake -->
         <div id="actionGroup" class="max-w-md mx-auto flex gap-2 hidden">
-            <button id="retakeBtn" class="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl shadow-lg transform transition active:scale-95 flex flex-col items-center justify-center gap-1 text-xs sm:text-sm">
+            <button id="retakeBtn"
+                class="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-xl shadow-lg transform transition active:scale-95 flex flex-col items-center justify-center gap-1 text-xs sm:text-sm">
                 <i class="fas fa-redo text-lg"></i>
                 ПЕРЕСНЯТЬ
             </button>
-            <button id="photoBtn" class="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-3 rounded-xl shadow-lg transform transition active:scale-95 flex flex-col items-center justify-center gap-1 text-xs sm:text-sm">
+            <button id="photoBtn"
+                class="flex-1 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-3 rounded-xl shadow-lg transform transition active:scale-95 flex flex-col items-center justify-center gap-1 text-xs sm:text-sm">
                 <i class="fas fa-download text-lg"></i>
                 СКАЧАТЬ
             </button>
-            <button id="shareBtn" class="flex-1 bg-gradient-to-r from-blue-500 to-teal-500 hover:from-blue-600 hover:to-teal-600 text-white font-bold py-3 rounded-xl shadow-lg transform transition active:scale-95 flex flex-col items-center justify-center gap-1 text-xs sm:text-sm">
+            <button id="shareBtn"
+                class="flex-1 bg-gradient-to-r from-blue-500 to-teal-500 hover:from-blue-600 hover:to-teal-600 text-white font-bold py-3 rounded-xl shadow-lg transform transition active:scale-95 flex flex-col items-center justify-center gap-1 text-xs sm:text-sm">
                 <i class="fas fa-share-nodes text-lg"></i>
                 ПОДЕЛИТЬСЯ
             </button>
@@ -121,6 +144,10 @@
         const offscreenCanvas = document.createElement('canvas');
         const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
 
+        // Вспомогательный холст для создания маски из массива вероятностей
+        const maskCanvas = document.createElement('canvas');
+        const maskCtx = maskCanvas.getContext('2d', { willReadFrequently: true });
+
         async function init() {
             try {
                 if (window.location.protocol === 'file:') {
@@ -135,21 +162,21 @@
                 });
 
                 loadingStatus.textContent = 'Загружаем новую нейросеть MediaPipe Tasks Vision...';
-                
+
                 // 1. Инициализация WASM и модели
                 const vision = await FilesetResolver.forVisionTasks(
                     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm"
                 );
-                
+
                 // 2. Создание сегментатора с принудительным GPU Delegate
                 net = await ImageSegmenter.createFromOptions(vision, {
                     baseOptions: {
                         modelAssetPath: "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
-                        delegate: "GPU" // ПРИНУДИТЕЛЬНОЕ ИСПОЛЬЗОВАНИЕ ВИДЕОКАРТЫ
+                        delegate: "GPU"
                     },
                     runningMode: "VIDEO",
-                    outputCategoryMask: false,
-                    outputConfidenceMasks: true
+                    outputCategoryMask: true,
+                    outputConfidenceMasks: false
                 });
 
                 loadingStatus.textContent = 'Запускаем камеру...';
@@ -215,39 +242,38 @@
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     drawBackground();
 
-                    if (result && result.confidenceMasks && result.confidenceMasks.length > 0) {
-                        const mask = result.confidenceMasks[0];
-                        
-                        // Получаем вероятности (Float32Array, значения от 0.0 до 1.0)
-                        const maskArray = mask.getAsFloat32Array();
+                    if (result && result.categoryMask) {
+                        const mask = result.categoryMask;
+                        const maskArray = mask.getAsUint8Array();
                         const mWidth = mask.width;
                         const mHeight = mask.height;
 
-                        // Создаем ImageData для альфа-маски (чтобы сохранить плавные края)
                         const imageData = maskCtx.createImageData(mWidth, mHeight);
                         const data = imageData.data;
-                        
-                        // Быстрый цикл: заливаем только Alpha-канал (прозрачность)
+
+                        // В categoryMask для этой модели: 0 = человек, >0 = фон.
                         for (let i = 0; i < maskArray.length; i++) {
-                            data[i * 4 + 3] = maskArray[i] * 255; 
+                            // Если значение равно 0, это человек. Задаем непрозрачность 255 (оставляем видео).
+                            // Если больше 0 - это фон, делаем его прозрачным (0), чтобы было видно bg.jpg
+                            data[i * 4 + 3] = maskArray[i] === 0 ? 255 : 0;
                         }
-                        
+
                         maskCanvas.width = mWidth;
                         maskCanvas.height = mHeight;
                         maskCtx.putImageData(imageData, 0, 0);
 
-                        // Отрисовываем
                         drawPerson(maskCanvas);
-
-                        // КРИТИЧЕСКИ ВАЖНО: Освобождение памяти (предотвращение Memory Leaks)
                         mask.close();
                     }
 
+                    isPredicting = false;
+
                 } catch (e) {
                     console.error(e);
+                    // ОТОБРАЖАЕМ ОШИБКУ НА ЭКРАНЕ
+                    document.getElementById('instructionText').textContent = "ОШИБКА: " + e.message;
+                    isPredicting = false;
                 }
-
-                isPredicting = false;
             }
 
             animationId = requestAnimationFrame(processVideo);
@@ -262,14 +288,16 @@
         function drawPerson(maskImage) {
             // Рисуем текущий кадр на скрытый холст
             offscreenCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
+
             // "destination-in" оставляет пиксели видео только там, где маска непрозрачная
-            // Благодаря естественному альфа-каналу маски мы получаем идеально гладкие края
             offscreenCtx.globalCompositeOperation = 'destination-in';
+            // ДОБАВЛЯЕМ РАСТУШЕВКУ (размытие маски на 4px для плавных краев)
+            offscreenCtx.filter = 'blur(4px)';
             offscreenCtx.drawImage(maskImage, 0, 0, canvas.width, canvas.height);
+            offscreenCtx.filter = 'none'; // Сбрасываем фильтр
             offscreenCtx.globalCompositeOperation = 'source-over';
 
-            // Отрисовка человека с базовыми фильтрами (только фронтальная камера = зеркалим всегда)
+            // Отрисовка человека с базовыми фильтрами (зеркалим)
             ctx.save();
             ctx.translate(canvas.width, 0);
             ctx.scale(-1, 1);
@@ -279,8 +307,8 @@
 
             // 1. Виньетка (затемнение по краям)
             const gradient = ctx.createRadialGradient(
-                canvas.width/2, canvas.height/2, 0, 
-                canvas.width/2, canvas.height/2, Math.max(canvas.width, canvas.height) * 0.7
+                canvas.width / 2, canvas.height / 2, 0,
+                canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) * 0.7
             );
             gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
             gradient.addColorStop(1, 'rgba(0, 0, 0, 0.4)'); // Мягкие тени по краям кадра
@@ -304,13 +332,13 @@
         captureBtn.addEventListener('click', () => {
             flash.classList.add('active');
             setTimeout(() => flash.classList.remove('active'), 50);
-            
+
             isFrozen = true;
             if (animationId) {
                 cancelAnimationFrame(animationId);
                 animationId = null;
             }
-            
+
             captureGroup.classList.add('hidden');
             actionGroup.classList.remove('hidden');
             instructionText.textContent = 'Отличное фото! Сохраните его или поделитесь с друзьями.';
@@ -374,4 +402,5 @@
         window.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
+
 </html>
