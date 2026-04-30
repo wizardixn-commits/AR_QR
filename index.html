@@ -62,6 +62,22 @@
                 return 'lite';
             }
 
+            // 1.5. Проверка версии Android и Chrome
+            // EMUI 12 работает на базе Android 10 или 11. MediaPipe Tasks Vision требует более свежих драйверов.
+            const androidMatch = ua.match(/android\s([0-9\.]+)/);
+            if (androidMatch) {
+                const androidVersion = parseFloat(androidMatch[1]);
+                // Android 12 и ниже -> отправляем на Lite
+                if (androidVersion <= 12) return 'lite';
+            }
+
+            const chromeMatch = ua.match(/chrome\/([0-9]+)/);
+            if (chromeMatch) {
+                const chromeVersion = parseInt(chromeMatch[1], 10);
+                // Старые версии Chrome (< 110) могут не поддерживать нужные WebAssembly SIMD инструкции
+                if (chromeVersion < 110) return 'lite';
+            }
+
             // 2. Поддерживает ли браузер WebAssembly (критично для Pro-версии)
             const hasWasm = typeof WebAssembly === "object" && typeof WebAssembly.instantiate === "function";
             if (!hasWasm) return 'lite';
