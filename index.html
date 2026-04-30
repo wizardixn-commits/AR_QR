@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>AR Фотозона</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.2.0/dist/body-pix.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #111; color: white; overflow: hidden; }
+        #flash {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: white; z-index: 50; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s ease-out;
+        }
+        #flash.active { opacity: 1; transition: none; }
+
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            height: calc(100vh - 120px);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        #outputCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 1rem;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+
+    <div id="flash"></div>
+
+    <!-- Экран загрузки -->
+    <div id="loading" class="fixed inset-0 z-40 flex flex-col items-center justify-center bg-gray-900 bg-opacity-95 backdrop-blur-sm transition-opacity duration-500">
+        <i class="fas fa-spinner fa-spin text-5xl text-purple-500 mb-4"></i>
+        <h2 class="text-xl font-bold text-white mb-2">Загрузка магии AR...</h2>
+        <p id="loadingStatus" class="text-gray-400 text-sm text-center px-6">Скачиваем нейросеть для удаления фона.<br>Пожалуйста, разрешите доступ к камере.</p>
+    </div>
+
+    <!-- Заголовок -->
+    <header class="p-4 flex justify-center items-center bg-gray-900 z-10">
+        <h1 class="text-xl font-extrabold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-pink-600">AR Фотозона</h1>
+    </header>
+    <!-- Инструкция для мобильных пользователей -->
+    <div class="text-center text-sm text-gray-400 mb-2">Нажмите «СДЕЛАТЬ СЕЛФИ» — фото будет сохранено в галерее вашего телефона.</div>
+
+    <!-- Главная область с камерой -->
+    <main class="flex-grow canvas-container bg-gray-950">
+        <video id="video" playsinline autoplay muted class="hidden"></video>
+        <canvas id="outputCanvas"></canvas>
+    </main>
+
+    <!-- Кнопка фото -->
+    <footer class="p-3 bg-gray-900 z-10 pb-6">
+        <div class="max-w-md mx-auto">
+            <button id="photoBtn" class="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-4 rounded-xl shadow-lg transform transition active:scale-95 flex items-center justify-center gap-2">
+                <i class="fas fa-camera text-xl"></i>
+                СДЕЛАТЬ СЕЛФИ
+            </button>
+        </div>
+    </footer>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('outputCanvas');
+        const ctx = canvas.getContext('2d');
+        const loading = document.getElementById('loading');
+        const loadingStatus = document.getElementById('loadingStatus');
+        const photoBtn = document.getElementById('photoBtn');
+        const flash = document.getElementById('flash');
+
+        let currentFacingMode = 'user';
+        let net = null;
+        let isPredicting = false;
+        let animationId = null;
+        let bgLoaded = false;
+
+        const backgroundImage = new Image();
+        backgroundImage.crossOrigin = 'anonymous';
+
+        const offscreenCanvas = document.createElement('canvas');
+        const offscreenCtx = offscreenCanvas.getContext('2d', { willReadFrequently: true });
+
+        async function init() {
+            try {
+                if (window.location.protocol === 'file:') {
+                    throw new Error('Откройте через локальный сервер: python3 -m http.server 8000, затем http://localhost:8000');
+                }
+
+                loadingStatus.textContent = 'Загружаем фоновое изображение...';
+                await new Promise((resolve, reject) => {
+                    backgroundImage.onload = () => { bgLoaded = true; resolve(); };
+                    backgroundImage.onerror = () => reject(new Error('Не удалось загрузить bg.jpg'));
+                    backgroundImage.src = 'bg.jpg';
+                });
+
+                loadingStatus.textContent = 'Загружаем нейросеть (это может занять 10-20 сек)...';
+                net = await bodyPix.load({
+                    architecture: 'MobileNetV1',
+                    outputStride: 16,
+                    multiplier: 0.50,
+                    quantBytes: 2
+                });
+
+                loadingStatus.textContent = 'Запускаем камеру...';
+                await startCamera();
+
+            } catch (error) {
+                console.error('Ошибка инициализации:', error);
+                loading.innerHTML = `
+                    <div class="text-red-500 text-center px-6">
+                        <i class="fas fa-exclamation-triangle text-5xl mb-4"></i>
+                        <p class="text-lg font-bold mb-2">Ошибка</p>
+                        <p class="text-sm text-gray-300">${error.message}</p>
+                        <button onclick="location.reload()" class="mt-4 px-6 py-2 bg-purple-600 rounded-lg text-white">Попробовать снова</button>
+                    </div>`;
+            }
+        }
+
+        async function startCamera() {
+            if (video.srcObject) {
+                video.srcObject.getTracks().forEach(track => track.stop());
+            }
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: currentFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false
+            });
+            video.srcObject = stream;
+            video.play().catch(e => console.error('Ошибка воспроизведения видео:', e));
+            video.onloadeddata = () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                offscreenCanvas.width = video.videoWidth;
+                offscreenCanvas.height = video.videoHeight;
+                loading.classList.add('opacity-0');
+                setTimeout(() => loading.style.display = 'none', 500);
+                if (!animationId) {
+                    processVideo();
+                }
+            };
+        }
+
+        function resizeCanvas() {
+            if (!video.videoWidth) return;
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            offscreenCanvas.width = video.videoWidth;
+            offscreenCanvas.height = video.videoHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        video.addEventListener('loadedmetadata', resizeCanvas);
+
+        async function processVideo() {
+            if (video.readyState === video.HAVE_ENOUGH_DATA && !isPredicting) {
+                isPredicting = true;
+
+                try {
+                    const segmentation = await net.segmentPerson(video, {
+                        flipHorizontal: false, // Don't flip segmentation, keep it aligned with video frame
+                        internalResolution: 'medium',
+                        segmentationThreshold: 0.7
+                    });
+
+                    // Clear canvas before redrawing
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    
+                    drawBackground();
+                    drawPerson(segmentation);
+
+                } catch (e) {
+                    console.error(e);
+                }
+
+                isPredicting = false;
+            }
+
+            animationId = requestAnimationFrame(processVideo);
+        }
+
+        function drawBackground() {
+            if (!bgLoaded) return;
+            // Растягиваем фон на весь холст, чтобы он не обрезался
+            ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+        }
+
+        function drawPerson(segmentation) {
+            // Рисуем текущий кадр на скрытый холст
+            offscreenCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Применяем маску: делаем фон прозрачным
+            const imageData = offscreenCtx.getImageData(0, 0, canvas.width, canvas.height);
+            const pixels = imageData.data;
+            for (let i = 0; i < segmentation.data.length; i++) {
+                if (segmentation.data[i] === 0) {
+                    pixels[i * 4 + 3] = 0; // прозрачный пиксель фона
+                }
+            }
+            offscreenCtx.putImageData(imageData, 0, 0);
+
+            // Отрисовка человека с фильтрами (только фронтальная камера = зеркалим всегда)
+            ctx.save();
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+            
+            // Теплый фильтр и легкий контраст/насыщенность (тень убрана из-за сильного падения производительности на мобильных)
+            ctx.filter = 'contrast(1.05) saturate(1.1)';
+            ctx.drawImage(offscreenCanvas, 0, 0);
+            ctx.restore();
+
+            // Накладываем виньетку (затемнение по краям) для объединения человека и фона общим светом
+            const gradient = ctx.createRadialGradient(
+                canvas.width/2, canvas.height/2, 0, 
+                canvas.width/2, canvas.height/2, Math.max(canvas.width, canvas.height) * 0.7
+            );
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+            gradient.addColorStop(1, 'rgba(0, 0, 0, 0.4)'); // Мягкие тени по краям кадра
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        photoBtn.addEventListener('click', () => {
+            try {
+                flash.classList.add('active');
+                setTimeout(() => flash.classList.remove('active'), 50);
+
+                canvas.toBlob((blob) => {
+                    if (!blob) {
+                        alert('Не удалось создать фото. Попробуйте ещё раз.');
+                        return;
+                    }
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.download = `selfie_${Date.now()}.png`;
+                    link.href = url;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                }, 'image/png');
+
+            } catch (err) {
+                console.error('Photo error:', err);
+                alert('Ошибка при сохранении фото: ' + err.message);
+            }
+        });
+
+        window.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
