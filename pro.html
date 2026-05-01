@@ -175,8 +175,8 @@
                         delegate: "GPU"
                     },
                     runningMode: "VIDEO",
-                    outputCategoryMask: true,
-                    outputConfidenceMasks: false
+                    outputCategoryMask: false,
+                    outputConfidenceMasks: true
                 };
 
                 try {
@@ -252,20 +252,20 @@
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     drawBackground();
 
-                    if (result && result.categoryMask) {
-                        const mask = result.categoryMask;
-                        const maskArray = mask.getAsUint8Array();
+                    if (result && result.confidenceMasks && result.confidenceMasks.length > 0) {
+                        const mask = result.confidenceMasks[0];
+                        const maskArray = mask.getAsFloat32Array();
                         const mWidth = mask.width;
                         const mHeight = mask.height;
 
                         const imageData = maskCtx.createImageData(mWidth, mHeight);
                         const data = imageData.data;
 
-                        // В categoryMask для этой модели: 0 = человек, >0 = фон.
+                        // В модели selfie_segmenter confidenceMasks[0] - это вероятность ЧЕЛОВЕКА (от 0.0 до 1.0)
+                        // Нам нужно, чтобы ЧЕЛОВЕК был непрозрачным (alpha=255), а ФОН прозрачным (alpha=0)
                         for (let i = 0; i < maskArray.length; i++) {
-                            // Если значение равно 0, это человек. Задаем непрозрачность 255 (оставляем видео).
-                            // Если больше 0 - это фон, делаем его прозрачным (0), чтобы было видно bg.jpg
-                            data[i * 4 + 3] = maskArray[i] === 0 ? 255 : 0;
+                            // Прямое умножение даст нам идеальный Alpha Matting (полупрозрачность на краях)
+                            data[i * 4 + 3] = maskArray[i] * 255;
                         }
 
                         maskCanvas.width = mWidth;
@@ -303,9 +303,13 @@
             offscreenCtx.filter = 'contrast(1.05) saturate(1.1)';
             offscreenCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            // 2. Вырезаем силуэт ("destination-in") с растушевкой маски
+            // 2. Вырезаем силуэт ("destination-in") с дополнительной растушевкой маски
+            // Сама маска от нейросети имеет размер всего 256x256, поэтому при растягивании на HD-видео 
+            // края на одежде могут казаться пиксельными. blur(4px) сгладит эти "квадратики".
             offscreenCtx.globalCompositeOperation = 'destination-in';
-            offscreenCtx.filter = 'blur(4px)'; // Размытие только для маски (чтобы сгладить пиксели нейросети)
+            offscreenCtx.imageSmoothingEnabled = true;
+            offscreenCtx.imageSmoothingQuality = 'high';
+            offscreenCtx.filter = 'blur(4px)'; 
             offscreenCtx.drawImage(maskImage, 0, 0, canvas.width, canvas.height);
             offscreenCtx.filter = 'none'; // Сбрасываем фильтр
             offscreenCtx.globalCompositeOperation = 'source-over';
