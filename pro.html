@@ -161,7 +161,7 @@
                     backgroundImage.src = 'bg.jpg';
                 });
 
-                loadingStatus.textContent = 'Загружаем новую нейросеть MediaPipe Tasks Vision...';
+                loadingStatus.textContent = 'Загружаемся...';
 
                 // 1. Инициализация WASM и модели
                 const vision = await FilesetResolver.forVisionTasks(
@@ -309,7 +309,7 @@
             offscreenCtx.globalCompositeOperation = 'destination-in';
             offscreenCtx.imageSmoothingEnabled = true;
             offscreenCtx.imageSmoothingQuality = 'high';
-            offscreenCtx.filter = 'blur(4px)'; 
+            offscreenCtx.filter = 'blur(4px)';
             offscreenCtx.drawImage(maskImage, 0, 0, canvas.width, canvas.height);
             offscreenCtx.filter = 'none'; // Сбрасываем фильтр
             offscreenCtx.globalCompositeOperation = 'source-over';
@@ -331,7 +331,7 @@
             ctx.fillStyle = gradient;
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // 2. Инстаграм-фильтр (Цветокоррекция поверх всего: фона и человека)
+            // 2. фильтр (Цветокоррекция поверх всего: фона и человека)
             ctx.save();
             // Теплый, кинематографичный оттенок (эффект Golden Hour)
             ctx.globalCompositeOperation = 'overlay';
