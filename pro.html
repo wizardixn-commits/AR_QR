@@ -59,6 +59,25 @@
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
         }
     </style>
+
+    <!-- Yandex.Metrika counter -->
+    <script type="text/javascript">
+        (function (m, e, t, r, i, k, a) {
+            m[i] = m[i] || function () { (m[i].a = m[i].a || []).push(arguments) };
+            m[i].l = 1 * new Date();
+            for (var j = 0; j < document.scripts.length; j++) { if (document.scripts[j].src === r) { return; } }
+            k = e.createElement(t), a = e.getElementsByTagName(t)[0], k.async = 1, k.src = r, a.parentNode.insertBefore(k, a)
+        })(window, document, 'script', 'https://mc.yandex.ru/metrika/tag.js?id=109050133', 'ym');
+
+        ym(109050133, 'init', { ssr: true, webvisor: true, clickmap: true, ecommerce: "dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce: true, trackLinks: true });
+    </script>
+    <noscript>
+        <div><img src="https://mc.yandex.ru/watch/109050133" style="position:absolute; left:-9999px;" alt="" /></div>
+    </noscript>
+    <!-- /Yandex.Metrika counter -->
+
+
+
 </head>
 
 <body class="flex flex-col">
@@ -137,6 +156,7 @@
         let isPredicting = false;
         let animationId = null;
         let bgLoaded = false;
+        const randomBg = Math.floor(Math.random() * 6) + 1; // Число от 1 до 6
 
         const backgroundImage = new Image();
         backgroundImage.crossOrigin = 'anonymous';
@@ -157,8 +177,8 @@
                 loadingStatus.textContent = 'Загружаем фоновое изображение...';
                 await new Promise((resolve, reject) => {
                     backgroundImage.onload = () => { bgLoaded = true; resolve(); };
-                    backgroundImage.onerror = () => reject(new Error('Не удалось загрузить bg.jpg'));
-                    backgroundImage.src = 'bg.jpg';
+                    backgroundImage.onerror = () => reject(new Error(`Не удалось загрузить ${randomBg}.jpg`));
+                    backgroundImage.src = `${randomBg}.jpg`;
                 });
 
                 loadingStatus.textContent = 'Загружаемся...';
