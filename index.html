@@ -37,6 +37,21 @@
             }
         }
     </style>
+    <!-- Yandex.Metrika counter -->
+    <script type="text/javascript">
+        (function (m, e, t, r, i, k, a) {
+            m[i] = m[i] || function () { (m[i].a = m[i].a || []).push(arguments) };
+            m[i].l = 1 * new Date();
+            for (var j = 0; j < document.scripts.length; j++) { if (document.scripts[j].src === r) { return; } }
+            k = e.createElement(t), a = e.getElementsByTagName(t)[0], k.async = 1, k.src = r, a.parentNode.insertBefore(k, a)
+        })(window, document, 'script', 'https://mc.yandex.ru/metrika/tag.js?id=109050133', 'ym');
+
+        ym(109050133, 'init', { ssr: true, webvisor: true, clickmap: true, ecommerce: "dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce: true, trackLinks: true });
+    </script>
+    <noscript>
+        <div><img src="https://mc.yandex.ru/watch/109050133" style="position:absolute; left:-9999px;" alt="" /></div>
+    </noscript>
+    <!-- /Yandex.Metrika counter -->
 </head>
 
 <body>
@@ -49,13 +64,13 @@
             // 1. Усиленная проверка на устройства Huawei/Honor (HarmonyOS / EMUI)
             // Встроенные браузеры могут прятать 'huawei' в User-Agent, поэтому ищем дополнительные маркеры
             const ua = navigator.userAgent.toLowerCase();
-            const isHuawei = ua.includes('huawei') || 
-                             ua.includes('honor') || 
-                             ua.includes('hmscore') || 
-                             ua.includes('harmony') || 
-                             ua.includes('emui') ||
-                             ua.includes('browser/hw'); // Huawei Browser
-            
+            const isHuawei = ua.includes('huawei') ||
+                ua.includes('honor') ||
+                ua.includes('hmscore') ||
+                ua.includes('harmony') ||
+                ua.includes('emui') ||
+                ua.includes('browser/hw'); // Huawei Browser
+
             const isHuaweiVendor = navigator.vendor && navigator.vendor.toLowerCase().includes('huawei');
 
             if (isHuawei || isHuaweiVendor) {
@@ -99,7 +114,7 @@
                 const canvas = document.createElement('canvas');
                 const gl = canvas.getContext('webgl2') || canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
                 if (!gl) return 'lite';
-                
+
                 // Проверка на проблемные видеоускорители (Mali GPU, которые часто стоят в Huawei/Honor/MediaTek)
                 const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
                 if (debugInfo) {
